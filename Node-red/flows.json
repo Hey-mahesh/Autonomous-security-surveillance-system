@@ -1,0 +1,250 @@
+[
+    {
+        "id": "8aa48775f59aa802",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "mqtt_vision",
+        "type": "mqtt in",
+        "z": "8aa48775f59aa802",
+        "name": "Camera_1",
+        "topic": "mahesh/vision/data",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "broker1",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 240,
+        "y": 160,
+        "wires": [
+            [
+                "brain",
+                "aa6a62ea82c8ce29"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_esp",
+        "type": "mqtt in",
+        "z": "8aa48775f59aa802",
+        "name": "Edge Devices",
+        "topic": "mahesh/esp32/sensors",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "broker1",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 250,
+        "y": 260,
+        "wires": [
+            [
+                "brain",
+                "33d12c3eac236729"
+            ]
+        ]
+    },
+    {
+        "id": "brain",
+        "type": "function",
+        "z": "8aa48775f59aa802",
+        "name": "Decision making...",
+        "func": "context.vision = context.vision || {};\ncontext.sensors = context.sensors || {};\n\n// Store incoming data\nif (msg.topic.includes(\"vision\")) context.vision = msg.payload;\nif (msg.topic.includes(\"esp32\")) context.sensors = msg.payload;\n\n// Wait until both AI and ESP32 data exist\nif (context.vision.person_confidence === undefined || context.sensors.ir_presence === undefined) {\n    return null;\n}\n\n// Read values\nlet vision = context.vision.person_confidence || 0;\nlet ir = context.sensors.ir_presence || 0;\nlet dark = context.sensors.is_dark ? 1 : 0;\nlet gasNorm = Math.min(context.sensors.gas / 800, 1);\n\n// Risk calculation\nlet risk = (vision * 0.25) + (ir * 0.25) + (dark * 0.25) + (gasNorm * 0.25);\n\n// State decision\nlet state = \"NORMAL\";\nif (risk > 0.70) state = \"ALARM\";\nelse if (risk > 0.50) state = \"ALERT\";\nelse if (risk > 0.40) state = \"WATCH\";\n\n// Command for alarm ESP32\nlet command = (state === \"ALARM\") ? \"ON\" : \"OFF\";\n\n// Dashboard payload (for OLED ESP32)\nlet dashboard = {\n    state: state,\n    risk: Number(risk.toFixed(2)),\n    vision: context.vision,\n    sensors: context.sensors\n};\n\n// InfluxDB payload (this is the important fixed part)\nlet influxMsg = {\n    measurement: \"security\",\n    payload: {\n        risk: Number(risk.toFixed(2)),\n        person: vision,\n        ir: ir,\n        gas: context.sensors.gas,\n        distance: context.sensors.distance,\n        is_dark: dark\n    },\n    tags: {\n        state: state\n    }\n};\n\n// Output order:\n// 1 → Alarm ESP32\n// 2 → OLED Dashboard\n// 3 → InfluxDB\nreturn [\n    { payload: command },\n    { payload: dashboard },\n    influxMsg\n];\n",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 530,
+        "y": 200,
+        "wires": [
+            [
+                "mqtt_alarm",
+                "85c72c78ebf77c30"
+            ],
+            [
+                "mqtt_dash",
+                "c67cb698d491c239"
+            ],
+            [
+                "c8a0c641d0ad5fae",
+                "e3d149714942a79a"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_alarm",
+        "type": "mqtt out",
+        "z": "8aa48775f59aa802",
+        "name": "ESP32 Alarm",
+        "topic": "mahesh/esp32/command",
+        "qos": "0",
+        "retain": false,
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker1",
+        "x": 770,
+        "y": 170,
+        "wires": []
+    },
+    {
+        "id": "mqtt_dash",
+        "type": "mqtt out",
+        "z": "8aa48775f59aa802",
+        "name": "Dashboard",
+        "topic": "mahesh/dashboard",
+        "qos": "0",
+        "retain": false,
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker1",
+        "x": 760,
+        "y": 250,
+        "wires": []
+    },
+    {
+        "id": "aa6a62ea82c8ce29",
+        "type": "debug",
+        "z": "8aa48775f59aa802",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 440,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "c8a0c641d0ad5fae",
+        "type": "influxdb out",
+        "z": "8aa48775f59aa802",
+        "influxdb": "2f32bd457e60e85d",
+        "name": "Influxdb (Data storage time-series based)",
+        "measurement": "",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "Student",
+        "bucket": "maheshphand",
+        "x": 820,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "e3d149714942a79a",
+        "type": "debug",
+        "z": "8aa48775f59aa802",
+        "name": "debug 2",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 720,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "33d12c3eac236729",
+        "type": "debug",
+        "z": "8aa48775f59aa802",
+        "name": "debug 3",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 440,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "85c72c78ebf77c30",
+        "type": "debug",
+        "z": "8aa48775f59aa802",
+        "name": "debug 4",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 760,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "c67cb698d491c239",
+        "type": "debug",
+        "z": "8aa48775f59aa802",
+        "name": "debug 5",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "broker1",
+        "type": "mqtt-broker",
+        "name": "CopperCloud",
+        "broker": "dev.coppercloud.in",
+        "port": "1883",
+        "clientid": "nodered-mahesh",
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true
+    },
+    {
+        "id": "2f32bd457e60e85d",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": 8086,
+        "protocol": "http",
+        "database": "database",
+        "name": "maheshphand",
+        "usetls": false,
+        "tls": "",
+        "influxdbVersion": "2.0",
+        "url": "http://localhost:8086",
+        "timeout": 10,
+        "rejectUnauthorized": true
+    },
+    {
+        "id": "715bdc42fdb6e06d",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-contrib-influxdb": "0.7.0"
+        }
+    }
+]
